@@ -7,12 +7,25 @@
 	objects = {
 
 /* Begin PBXFileReference section */
-		9DB886733017BAEF00ECD14F /* Blu-Chat.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Blu-Chat.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		9DB886733017BAEF00ECD14F /* BluChat.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = BluChat.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
+
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		9DB88690301FA2E200ECD14F /* Exceptions for "Blu-Chat" folder in "BluChat" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = 9DB886723017BAEF00ECD14F /* BluChat */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		9DB886753017BAEF00ECD14F /* Blu-Chat */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				9DB88690301FA2E200ECD14F /* Exceptions for "Blu-Chat" folder in "BluChat" target */,
+			);
 			path = "Blu-Chat";
 			sourceTree = "<group>";
 		};
@@ -40,7 +53,7 @@
 		9DB886743017BAEF00ECD14F /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				9DB886733017BAEF00ECD14F /* Blu-Chat.app */,
+				9DB886733017BAEF00ECD14F /* BluChat.app */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -48,9 +61,9 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
-		9DB886723017BAEF00ECD14F /* Blu-Chat */ = {
+		9DB886723017BAEF00ECD14F /* BluChat */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = 9DB8867E3017BAF100ECD14F /* Build configuration list for PBXNativeTarget "Blu-Chat" */;
+			buildConfigurationList = 9DB8867E3017BAF100ECD14F /* Build configuration list for PBXNativeTarget "BluChat" */;
 			buildPhases = (
 				9DB8866F3017BAEF00ECD14F /* Sources */,
 				9DB886703017BAEF00ECD14F /* Frameworks */,
@@ -63,11 +76,11 @@
 			fileSystemSynchronizedGroups = (
 				9DB886753017BAEF00ECD14F /* Blu-Chat */,
 			);
-			name = "Blu-Chat";
+			name = BluChat;
 			packageProductDependencies = (
 			);
 			productName = "Blu-Chat";
-			productReference = 9DB886733017BAEF00ECD14F /* Blu-Chat.app */;
+			productReference = 9DB886733017BAEF00ECD14F /* BluChat.app */;
 			productType = "com.apple.product-type.application";
 		};
 /* End PBXNativeTarget section */
@@ -99,7 +112,7 @@
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
-				9DB886723017BAEF00ECD14F /* Blu-Chat */,
+				9DB886723017BAEF00ECD14F /* BluChat */,
 			);
 		};
 /* End PBXProject section */
@@ -256,6 +269,8 @@
 				DEVELOPMENT_TEAM = FG4XNUB6K8;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "Blu-Chat/Info.plist";
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "BluChat uses the local network and ​Bluetooth to transfer offline messages and media.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -288,6 +303,8 @@
 				DEVELOPMENT_TEAM = FG4XNUB6K8;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "Blu-Chat/Info.plist";
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "BluChat uses the local network and ​Bluetooth to transfer offline messages and media.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -322,7 +339,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		9DB8867E3017BAF100ECD14F /* Build configuration list for PBXNativeTarget "Blu-Chat" */ = {
+		9DB8867E3017BAF100ECD14F /* Build configuration list for PBXNativeTarget "BluChat" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				9DB8867F3017BAF100ECD14F /* Debug */,
