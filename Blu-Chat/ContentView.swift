@@ -76,8 +76,8 @@ final class ContactsManager: ObservableObject {
                     fetchedContacts.append(contact)
                 }
                 let results = fetchedContacts
-                await MainActor.run {
-                    self.contacts = results
+                await MainActor.run { [weak self] in
+                    self?.contacts = results
                 }
             } catch {
                 print("Error fetching contacts in background: \(error)")
@@ -567,7 +567,8 @@ struct ChatDetailView: View {
     @State private var messageText: String = ""
     @State private var selectedPhotoItem: PhotosPickerItem?
     @State private var showingFileImporter = false
-    @State private var errorMessage: String?
+    @State private var showingErrorAlert = false
+    @State private var errorMessage: String = ""
     
     var body: some View {
         VStack {
@@ -647,15 +648,13 @@ struct ChatDetailView: View {
                 }
             case .failure(let error):
                 errorMessage = error.localizedDescription
+                showingErrorAlert = true
             }
         }
-        .alert("Attachment Error", isPresented: Binding(
-            get: { errorMessage != nil },
-            set: { if !$0 { errorMessage = nil } }
-        )) {
-            Button("OK") { errorMessage = nil }
+        .alert("Attachment Error", isPresented: $showingErrorAlert) {
+            Button("OK") {}
         } message: {
-            Text(errorMessage ?? "")
+            Text(errorMessage)
         }
     }
     
@@ -669,6 +668,7 @@ struct ChatDetailView: View {
                 try manager.sendMediaFile(fileURL: tempURL, type: .image, to: conversation)
             } catch {
                 errorMessage = error.localizedDescription
+                showingErrorAlert = true
             }
         }
     }
@@ -676,6 +676,7 @@ struct ChatDetailView: View {
     private func handleSelectedFile(_ url: URL) {
         guard url.startAccessingSecurityScopedResource() else {
             errorMessage = "Unable to access selected file permissions."
+            showingErrorAlert = true
             return
         }
         defer { url.stopAccessingSecurityScopedResource() }
@@ -688,6 +689,7 @@ struct ChatDetailView: View {
             try manager.sendMediaFile(fileURL: tempURL, type: .file, to: conversation)
         } catch {
             errorMessage = error.localizedDescription
+            showingErrorAlert = true
         }
     }
 }

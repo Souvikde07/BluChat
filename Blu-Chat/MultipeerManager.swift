@@ -72,7 +72,7 @@ final class MultipeerManager: ObservableObject {
         }
         
         // Incoming invitations (Auto-accept)
-        advertiser.onInvitationReceived = { [weak self] peer, context, invitationHandler in
+        advertiser.onInvitationReceived = { [weak self] _, _, invitationHandler in
             guard let self = self else { return }
             invitationHandler(true, self.sessionManager.session)
         }
@@ -97,14 +97,14 @@ final class MultipeerManager: ObservableObject {
         }
         
         // Received JSON Message
-        sessionManager.onDataReceived = { [weak self] data, peer in
+        sessionManager.onDataReceived = { [weak self] data, _ in
             Task { @MainActor [weak self] in
                 self?.handleReceivedData(data)
             }
         }
         
         // Received Media File / Resource
-        sessionManager.onResourceReceived = { [weak self] localURL, peer in
+        sessionManager.onResourceReceived = { [weak self] localURL, _ in
             Task { @MainActor [weak self] in
                 self?.handleReceivedResource(at: localURL)
             }
