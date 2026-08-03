@@ -3,7 +3,7 @@ import MultipeerConnectivity
 import SwiftData
 import Combine
 
-/// Payload wrapper sent over the network for text messages and file metadata.
+/// Payload wrapper sent over the network for text messages, file metadata, and read receipts.
 struct NetworkMessage: Codable {
     let id: UUID
     let senderID: UUID
@@ -149,6 +149,32 @@ final class MultipeerManager: ObservableObject {
         }
     }
     
+    /// Sends read receipts for a conversation to connected peers.
+    func markConversationAsRead(_ conversation: Conversation) {
+        guard let context = modelContext else { return }
+        
+        let unreadMessages = conversation.messages.filter { $0.sender.id != myUser.id && $0.status != .read }
+        for msg in unreadMessages {
+            msg.status = .read
+        }
+        
+        let payload = NetworkMessage(
+            id: UUID(),
+            senderID: myUser.id,
+            senderName: myUser.name,
+            conversationID: conversation.id,
+            content: "",
+            type: .readReceipt,
+            fileSize: 0,
+            timestamp: Date()
+        )
+        
+        if let data = try? JSONEncoder().encode(payload) {
+            let targetPeers = sessionManager.session.connectedPeers
+            try? sessionManager.send(data: data, to: targetPeers)
+        }
+    }
+    
     /// Sends media (Image, Video, or File up to 100MB) over MCSession.
     func sendMediaFile(fileURL: URL, type: MessageType, caption: String = "", to conversation: Conversation) throws {
         let maxLimit: Int64 = 100 * 1024 * 1024 // 100 MB
@@ -199,6 +225,17 @@ final class MultipeerManager: ObservableObject {
         guard let context = modelContext,
               let payload = try? JSONDecoder().decode(NetworkMessage.self, from: data) else { return }
         
+        if payload.type == .readReceipt {
+            let conversationID = payload.conversationID
+            let descriptor = FetchDescriptor<Conversation>(predicate: #Predicate { $0.id == conversationID })
+            if let conversation = try? context.fetch(descriptor).first {
+                for msg in conversation.messages where msg.sender.id == myUser.id {
+                    msg.status = .read
+                }
+            }
+            return
+        }
+        
         let sender = fetchOrCreateUser(id: payload.senderID, name: payload.senderName)
         let conversation = fetchOrCreateConversation(id: payload.conversationID, sender: sender)
         
@@ -218,14 +255,10 @@ final class MultipeerManager: ObservableObject {
     private func handleReceivedResource(at localURL: URL) {
         guard let context = modelContext else { return }
         
-        // Parse metadata encoded in resource name
         let resourceName = localURL.lastPathComponent
         let components = resourceName.components(separatedBy: "|")
         
-        guard components.count >= 5 else {
-            // Save plain received file locally
-            return
-        }
+        guard components.count >= 5 else { return }
         
         let messageID = UUID(uuidString: components[0]) ?? UUID()
         let senderID = UUID(uuidString: components[1]) ?? UUID()
@@ -233,7 +266,6 @@ final class MultipeerManager: ObservableObject {
         let type = MessageType(rawValue: components[3]) ?? .file
         let caption = components[4]
         
-        // Copy file to local Documents directory for persistent storage
         let documentsDirectory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
         let destinationURL = documentsDirectory.appendingPathComponent("\(messageID.uuidString)_\(localURL.lastPathComponent)")
         

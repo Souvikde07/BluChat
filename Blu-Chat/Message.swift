@@ -7,12 +7,14 @@ enum MessageType: String, Codable {
     case image
     case video
     case file
+    case readReceipt
 }
 
 /// Represents the state of message delivery over Multipeer Connectivity.
 enum DeliveryStatus: String, Codable {
     case sending
     case sent
+    case read
     case failed
 }
 
@@ -25,7 +27,7 @@ final class Message {
     var sender: User
     /// The message text content or caption
     var content: String
-    /// The type of message (text, image, video, file)
+    /// The type of message (text, image, video, file, readReceipt)
     var typeRaw: String
     /// Relative local path or file URL string for media attachments
     var mediaPath: String?
