@@ -2,13 +2,13 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-	<key>Bundle ​Display ​Name (CFBundle​Display​Name)</key>
-	<string>BluChat</string>
-	<key>NSBonjourServices</key>
+	<key>Bonjour services(NSBonjourServices)</key>
 	<array>
 		<string>_blu​chat​-msg._tcp</string>
 		<string>_blu​chat​-msg._udp</string>
 	</array>
+	<key>Bundle ​Display ​Name (CFBundle​Display​Name)</key>
+	<string>BluChat</string>
 	<key>Privacy - Bluetooth ​Always ​Usage ​Description</key>
 	<string>Blu​Chat requires ​Bluetooth to discover and send messages to nearby users offline.</string>
 </dict>

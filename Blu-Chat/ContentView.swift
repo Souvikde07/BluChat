@@ -14,34 +14,39 @@ import Contacts
 import Combine
 import UniformTypeIdentifiers
 
+// MARK: - Sendable Contact Model
+struct ContactItem: Sendable, Identifiable {
+    let id: String
+    let givenName: String
+    let familyName: String
+    let phoneNumber: String
+    
+    var fullName: String {
+        let name = "\(givenName) \(familyName)".trimmingCharacters(in: .whitespaces)
+        return name.isEmpty ? "Unknown" : name
+    }
+}
+
 // MARK: - Contacts Manager
 @MainActor
 final class ContactsManager: ObservableObject {
-    @Published var contacts: [CNContact] = []
+    @Published var contacts: [ContactItem] = []
     @Published var authorizationStatus: CNAuthorizationStatus = .notDetermined
     
     private lazy var contactStore = CNContactStore()
     
     init() {}
     
-    /// Safely checks authorization without triggering crashes if NSContactsUsageDescription is missing.
     func checkAuthorization() {
-        guard Bundle.main.object(forInfoDictionaryKey: "NSContactsUsageDescription") != nil else {
-            print("Notice: 'NSContactsUsageDescription' is missing from Info.plist. Contacts access disabled.")
-            return
-        }
+        guard Bundle.main.object(forInfoDictionaryKey: "NSContactsUsageDescription") != nil else { return }
         authorizationStatus = CNContactStore.authorizationStatus(for: .contacts)
         if authorizationStatus == .authorized {
             fetchContacts()
         }
     }
     
-    /// Requests access to device contacts safely.
     func requestAccess() async -> Bool {
-        guard Bundle.main.object(forInfoDictionaryKey: "NSContactsUsageDescription") != nil else {
-            print("Error: 'NSContactsUsageDescription' key missing in Info.plist. Cannot request contacts access.")
-            return false
-        }
+        guard Bundle.main.object(forInfoDictionaryKey: "NSContactsUsageDescription") != nil else { return false }
         
         do {
             let granted = try await contactStore.requestAccess(for: .contacts)
@@ -51,12 +56,10 @@ final class ContactsManager: ObservableObject {
             }
             return granted
         } catch {
-            print("Failed to request contacts access: \(error)")
             return false
         }
     }
     
-    /// Fetches contacts asynchronously on a background thread to prevent UI unresponsiveness.
     func fetchContacts() {
         guard Bundle.main.object(forInfoDictionaryKey: "NSContactsUsageDescription") != nil else { return }
         
@@ -69,18 +72,25 @@ final class ContactsManager: ObservableObject {
             ]
             
             let fetchRequest = CNContactFetchRequest(keysToFetch: keysToFetch)
-            var fetchedContacts: [CNContact] = []
+            var fetchedItems: [ContactItem] = []
             
             do {
                 try store.enumerateContacts(with: fetchRequest) { contact, _ in
-                    fetchedContacts.append(contact)
+                    let phone = contact.phoneNumbers.first?.value.stringValue ?? ""
+                    let item = ContactItem(
+                        id: contact.identifier,
+                        givenName: contact.givenName,
+                        familyName: contact.familyName,
+                        phoneNumber: phone
+                    )
+                    fetchedItems.append(item)
                 }
-                let results = fetchedContacts
+                let results = fetchedItems
                 await MainActor.run { [weak self] in
                     self?.contacts = results
                 }
             } catch {
-                print("Error fetching contacts in background: \(error)")
+                print("Error fetching contacts: \(error)")
             }
         }
     }
@@ -89,9 +99,9 @@ final class ContactsManager: ObservableObject {
         let cleanedPeerName = peerDisplayName.lowercased().trimmingCharacters(in: .whitespaces)
         
         for contact in contacts {
-            let fullName = "\(contact.givenName) \(contact.familyName)".lowercased().trimmingCharacters(in: .whitespaces)
-            if fullName.contains(cleanedPeerName) || cleanedPeerName.contains(fullName) {
-                return "\(contact.givenName) \(contact.familyName)"
+            let name = contact.fullName.lowercased()
+            if name.contains(cleanedPeerName) || cleanedPeerName.contains(name) {
+                return contact.fullName
             }
         }
         return peerDisplayName
@@ -115,7 +125,6 @@ final class ContactsManager: ObservableObject {
             fetchContacts()
             return true
         } catch {
-            print("Error saving new contact: \(error)")
             return false
         }
     }
@@ -132,6 +141,7 @@ struct ContentView: View {
     @StateObject private var multipeerManager: MultipeerManager
     @StateObject private var contactsManager = ContactsManager()
     
+    @State private var selectedTab: Int = 0
     @State private var showingNewGroupSheet = false
     @State private var showingAddContactSheet = false
     @State private var selectedPeerForContact: MCPeerID?
@@ -147,25 +157,26 @@ struct ContentView: View {
                 ProfileSetupView(
                     customUserName: $customUserName,
                     hasCompletedOnboarding: $hasCompletedOnboarding,
+                    selectedTab: $selectedTab,
                     multipeerManager: multipeerManager,
                     contactsManager: contactsManager
                 )
             } else {
-                TabView {
-                    // MARK: - Tab 1: Chats
+                TabView(selection: $selectedTab) {
+                    // MARK: - Tab 0: Chats
                     NavigationStack {
                         List {
                             if conversations.isEmpty {
                                 ContentUnavailableView(
                                     "No Chats Yet",
                                     systemImage: "message.badge.circle",
-                                    description: Text("Discovered nearby users will appear in the Nearby tab below.")
+                                    description: Text("Discovered nearby users will appear in the Nearby tab.")
                                 )
                             } else {
                                 Section("Recent Chats") {
                                     ForEach(conversations) { conversation in
                                         NavigationLink(destination: ChatDetailView(conversation: conversation, manager: multipeerManager)) {
-                                            ConversationRow(conversation: conversation)
+                                            ConversationRow(conversation: conversation, myUserName: multipeerManager.myUser.name)
                                         }
                                     }
                                 }
@@ -188,14 +199,19 @@ struct ContentView: View {
                     .tabItem {
                         Label("Chats", systemImage: "bubble.left.and.bubble.right.fill")
                     }
+                    .tag(0)
                     
-                    // MARK: - Tab 2: Nearby Peers
+                    // MARK: - Tab 1: Nearby Peers
                     NavigationStack {
                         List {
                             Section("Discovered Nearby Users") {
                                 if multipeerManager.availablePeers.isEmpty {
-                                    Text("Searching for nearby Bluetooth devices...")
-                                        .foregroundColor(.secondary)
+                                    HStack(spacing: 12) {
+                                        ProgressView()
+                                        Text("Searching for nearby devices...")
+                                            .foregroundColor(.secondary)
+                                    }
+                                    .padding(.vertical, 8)
                                 } else {
                                     ForEach(multipeerManager.availablePeers, id: \.displayName) { peer in
                                         PeerRow(
@@ -216,6 +232,19 @@ struct ContentView: View {
                             }
                         }
                         .navigationTitle("Nearby")
+                        .toolbar {
+                            ToolbarItem(placement: .topBarTrailing) {
+                                Button {
+                                    multipeerManager.stop()
+                                    multipeerManager.start()
+                                } label: {
+                                    Image(systemName: "arrow.clockwise")
+                                }
+                            }
+                        }
+                        .onAppear {
+                            multipeerManager.start()
+                        }
                         .sheet(isPresented: $showingAddContactSheet) {
                             if let peer = selectedPeerForContact {
                                 AddContactSheet(peerName: peer.displayName, contactsManager: contactsManager)
@@ -225,14 +254,16 @@ struct ContentView: View {
                     .tabItem {
                         Label("Nearby", systemImage: "antenna.radiowaves.left.and.right")
                     }
+                    .tag(1)
                     
-                    // MARK: - Tab 3: Settings & Profile
+                    // MARK: - Tab 2: Settings & Profile
                     NavigationStack {
                         SettingsView(multipeerManager: multipeerManager)
                     }
                     .tabItem {
                         Label("Settings", systemImage: "gearshape.fill")
                     }
+                    .tag(2)
                 }
             }
         }
@@ -240,9 +271,7 @@ struct ContentView: View {
             multipeerManager.setModelContext(modelContext)
             if hasCompletedOnboarding {
                 multipeerManager.start()
-                Task {
-                    _ = await contactsManager.requestAccess()
-                }
+                contactsManager.checkAuthorization()
             }
         }
         .onDisappear {
@@ -251,11 +280,29 @@ struct ContentView: View {
     }
     
     private func startChatWithPeer(_ peer: MCPeerID, displayName: String) {
-        let peerUser = User(name: displayName)
-        modelContext.insert(peerUser)
+        let descriptor = FetchDescriptor<User>()
+        let existingUsers = (try? modelContext.fetch(descriptor)) ?? []
         
-        let newConversation = Conversation(participants: [multipeerManager.myUser, peerUser])
-        modelContext.insert(newConversation)
+        let peerUser: User
+        if let found = existingUsers.first(where: { $0.name == displayName }) {
+            peerUser = found
+        } else {
+            peerUser = User(name: displayName)
+            modelContext.insert(peerUser)
+        }
+        
+        let convDescriptor = FetchDescriptor<Conversation>()
+        let existingConvs = (try? modelContext.fetch(convDescriptor)) ?? []
+        
+        let conversation: Conversation
+        if let foundConv = existingConvs.first(where: { !$0.isGroup && $0.participants.contains(where: { $0.name == displayName }) }) {
+            conversation = foundConv
+        } else {
+            conversation = Conversation(participants: [multipeerManager.myUser, peerUser])
+            modelContext.insert(conversation)
+        }
+        
+        selectedTab = 0
     }
 }
 
@@ -263,6 +310,7 @@ struct ContentView: View {
 struct ProfileSetupView: View {
     @Binding var customUserName: String
     @Binding var hasCompletedOnboarding: Bool
+    @Binding var selectedTab: Int
     @ObservedObject var multipeerManager: MultipeerManager
     @ObservedObject var contactsManager: ContactsManager
     
@@ -312,8 +360,11 @@ struct ProfileSetupView: View {
                     customUserName = trimmed
                     multipeerManager.myUser.name = trimmed
                 }
+                
+                selectedTab = 1
                 hasCompletedOnboarding = true
                 multipeerManager.start()
+                
                 Task {
                     _ = await contactsManager.requestAccess()
                 }
@@ -529,6 +580,18 @@ struct AddContactSheet: View {
 // MARK: - Conversation Row Component
 struct ConversationRow: View {
     let conversation: Conversation
+    let myUserName: String
+    
+    var otherParticipantsTitle: String {
+        if conversation.isGroup {
+            return conversation.name ?? "Group Chat"
+        }
+        let otherNames = conversation.participants
+            .map { $0.name }
+            .filter { $0 != myUserName }
+        
+        return otherNames.isEmpty ? (conversation.name ?? "Chat") : otherNames.joined(separator: ", ")
+    }
     
     var body: some View {
         HStack(spacing: 12) {
@@ -538,7 +601,7 @@ struct ConversationRow: View {
                 .foregroundColor(.accentColor)
             
             VStack(alignment: .leading, spacing: 4) {
-                Text(conversation.name ?? conversation.participants.compactMap { $0.name }.joined(separator: ", "))
+                Text(otherParticipantsTitle)
                     .font(.headline)
                 
                 if let lastMessage = conversation.messages.last {
@@ -570,13 +633,24 @@ struct ChatDetailView: View {
     @State private var showingErrorAlert = false
     @State private var errorMessage: String = ""
     
+    var recipientTitle: String {
+        if conversation.isGroup {
+            return conversation.name ?? "Group Chat"
+        }
+        let otherNames = conversation.participants
+            .map { $0.name }
+            .filter { $0 != manager.myUser.name }
+        
+        return otherNames.isEmpty ? (conversation.name ?? "Chat") : otherNames.joined(separator: ", ")
+    }
+    
     var body: some View {
         VStack {
             ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(spacing: 10) {
                         ForEach(conversation.messages.sorted(by: { $0.timestamp < $1.timestamp })) { message in
-                            MessageBubble(message: message, isFromCurrentUser: message.sender.id == manager.myUser.id)
+                            MessageBubble(message: message, isFromCurrentUser: message.sender.name == manager.myUser.name)
                                 .id(message.id)
                         }
                     }
@@ -592,7 +666,6 @@ struct ChatDetailView: View {
             }
             
             HStack(spacing: 8) {
-                // Attachment Menu (Photos / Documents up to 100MB)
                 Menu {
                     PhotosPicker(selection: $selectedPhotoItem, matching: .any(of: [.images, .videos])) {
                         Label("Photo or Video", systemImage: "photo")
@@ -631,7 +704,7 @@ struct ChatDetailView: View {
             .padding()
             .background(.thinMaterial)
         }
-        .navigationTitle(conversation.name ?? conversation.participants.filter { $0.id != manager.myUser.id }.map { $0.name }.joined(separator: ", "))
+        .navigationTitle(recipientTitle)
         .navigationBarTitleDisplayMode(.inline)
         .onAppear {
             manager.markConversationAsRead(conversation)
@@ -704,7 +777,6 @@ struct MessageBubble: View {
             if isFromCurrentUser { Spacer() }
             
             VStack(alignment: isFromCurrentUser ? .trailing : .leading, spacing: 4) {
-                // Image Media
                 if message.type == .image, let path = message.mediaPath, let uiImage = UIImage(contentsOfFile: path) {
                     Image(uiImage: uiImage)
                         .resizable()
@@ -712,7 +784,6 @@ struct MessageBubble: View {
                         .frame(maxWidth: 220)
                         .cornerRadius(8)
                 }
-                // File / Document Attachment
                 else if message.type == .file, let path = message.mediaPath {
                     let fileName = URL(fileURLWithPath: path).lastPathComponent
                     let fileSizeFormatted = ByteCountFormatter.string(fromByteCount: message.fileSize, countStyle: .file)
@@ -738,7 +809,6 @@ struct MessageBubble: View {
                     .cornerRadius(12)
                 }
                 
-                // Message Text Caption
                 if !message.content.isEmpty {
                     Text(message.content)
                         .padding(10)
@@ -747,7 +817,6 @@ struct MessageBubble: View {
                         .cornerRadius(16)
                 }
                 
-                // Timestamp & WhatsApp Double Blue Ticks
                 HStack(spacing: 4) {
                     Text(message.timestamp.formatted(date: .omitted, time: .shortened))
                         .font(.caption2)

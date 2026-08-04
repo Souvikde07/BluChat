@@ -38,30 +38,26 @@ final class MultipeerManager: ObservableObject {
         setupHandlers()
     }
     
-    /// Assigns the SwiftData ModelContext for persistent message saving.
     func setModelContext(_ context: ModelContext) {
         self.modelContext = context
     }
     
-    /// Starts advertising and browsing for nearby peers.
     func start() {
         advertiser.startAdvertising()
         browser.startBrowsing()
     }
     
-    /// Stops all networking activities.
     func stop() {
         advertiser.stopAdvertising()
         browser.stopBrowsing()
         sessionManager.session.disconnect()
     }
     
-    // MARK: - Handlers Setup
     private func setupHandlers() {
-        // Discovered peers
         browser.onPeerFound = { [weak self] peer in
             guard let self = self else { return }
-            if !self.availablePeers.contains(peer) {
+            let isSelf = peer == self.sessionManager.myPeerID || peer.displayName == self.myUser.name
+            if !isSelf && !self.availablePeers.contains(peer) {
                 self.availablePeers.append(peer)
             }
         }
@@ -71,13 +67,12 @@ final class MultipeerManager: ObservableObject {
             self.availablePeers.removeAll { $0 == peer }
         }
         
-        // Incoming invitations (Auto-accept)
-        advertiser.onInvitationReceived = { [weak self] _, _, invitationHandler in
+        advertiser.onInvitationReceived = { [weak self] peer, _, invitationHandler in
             guard let self = self else { return }
+            // Always auto-accept invitations into the shared MCSession
             invitationHandler(true, self.sessionManager.session)
         }
         
-        // MCSession State changes
         sessionManager.onPeerStateChanged = { [weak self] peer, state in
             Task { @MainActor [weak self] in
                 guard let self = self else { return }
@@ -96,14 +91,12 @@ final class MultipeerManager: ObservableObject {
             }
         }
         
-        // Received JSON Message
         sessionManager.onDataReceived = { [weak self] data, _ in
             Task { @MainActor [weak self] in
                 self?.handleReceivedData(data)
             }
         }
         
-        // Received Media File / Resource
         sessionManager.onResourceReceived = { [weak self] localURL, _ in
             Task { @MainActor [weak self] in
                 self?.handleReceivedResource(at: localURL)
@@ -111,14 +104,13 @@ final class MultipeerManager: ObservableObject {
         }
     }
     
-    // MARK: - Peer Connections
     func invitePeer(_ peer: MCPeerID) {
-        browser.invite(peer: peer, to: sessionManager.session)
+        // Invite peer into session if not already connected or connecting
+        if !sessionManager.session.connectedPeers.contains(peer) {
+            browser.invite(peer: peer, to: sessionManager.session)
+        }
     }
     
-    // MARK: - Message Sending
-    
-    /// Sends a text message to specified recipients and saves locally.
     func sendTextMessage(_ text: String, to conversation: Conversation) {
         guard let context = modelContext else { return }
         
@@ -126,7 +118,7 @@ final class MultipeerManager: ObservableObject {
             sender: myUser,
             content: text,
             type: .text,
-            status: .sent,
+            status: .sending,
             timestamp: Date(),
             conversation: conversation
         )
@@ -143,13 +135,24 @@ final class MultipeerManager: ObservableObject {
             timestamp: message.timestamp
         )
         
+        let targetPeers = sessionManager.session.connectedPeers
+        guard !targetPeers.isEmpty else {
+            print("Warning: MCSession not in connected state yet. Retrying when connection completes.")
+            message.status = .failed
+            return
+        }
+        
         if let data = try? JSONEncoder().encode(payload) {
-            let targetPeers = sessionManager.session.connectedPeers
-            try? sessionManager.send(data: data, to: targetPeers)
+            do {
+                try sessionManager.send(data: data, to: targetPeers)
+                message.status = .sent
+            } catch {
+                print("Failed to send message over MCSession: \(error)")
+                message.status = .failed
+            }
         }
     }
     
-    /// Sends read receipts for a conversation to connected peers.
     func markConversationAsRead(_ conversation: Conversation) {
         guard let context = modelContext else { return }
         
@@ -157,6 +160,9 @@ final class MultipeerManager: ObservableObject {
         for msg in unreadMessages {
             msg.status = .read
         }
+        
+        let targetPeers = sessionManager.session.connectedPeers
+        guard !targetPeers.isEmpty else { return }
         
         let payload = NetworkMessage(
             id: UUID(),
@@ -170,12 +176,10 @@ final class MultipeerManager: ObservableObject {
         )
         
         if let data = try? JSONEncoder().encode(payload) {
-            let targetPeers = sessionManager.session.connectedPeers
             try? sessionManager.send(data: data, to: targetPeers)
         }
     }
     
-    /// Sends media (Image, Video, or File up to 100MB) over MCSession.
     func sendMediaFile(fileURL: URL, type: MessageType, caption: String = "", to conversation: Conversation) throws {
         let maxLimit: Int64 = 100 * 1024 * 1024 // 100 MB
         let fileAttributes = try FileManager.default.attributesOfItem(atPath: fileURL.path)
@@ -191,6 +195,15 @@ final class MultipeerManager: ObservableObject {
         
         guard let context = modelContext else { return }
         
+        let targetPeers = sessionManager.session.connectedPeers
+        guard !targetPeers.isEmpty else {
+            throw NSError(
+                domain: "MultipeerManager",
+                code: 1002,
+                userInfo: [NSLocalizedDescriptionKey: "No connected peer found. Please wait for connection to establish."]
+            )
+        }
+        
         let message = Message(
             sender: myUser,
             content: caption,
@@ -202,8 +215,6 @@ final class MultipeerManager: ObservableObject {
             conversation: conversation
         )
         context.insert(message)
-        
-        let targetPeers = sessionManager.session.connectedPeers
         
         for peer in targetPeers {
             let resourceName = "\(message.id.uuidString)|\(myUser.id.uuidString)|\(conversation.id.uuidString)|\(type.rawValue)|\(caption)"
@@ -220,24 +231,24 @@ final class MultipeerManager: ObservableObject {
         }
     }
     
-    // MARK: - Incoming Data Processing
     private func handleReceivedData(_ data: Data) {
         guard let context = modelContext,
               let payload = try? JSONDecoder().decode(NetworkMessage.self, from: data) else { return }
         
         if payload.type == .readReceipt {
-            let conversationID = payload.conversationID
-            let descriptor = FetchDescriptor<Conversation>(predicate: #Predicate { $0.id == conversationID })
-            if let conversation = try? context.fetch(descriptor).first {
-                for msg in conversation.messages where msg.sender.id == myUser.id {
-                    msg.status = .read
+            let descriptor = FetchDescriptor<Conversation>()
+            if let conversations = try? context.fetch(descriptor) {
+                for conversation in conversations {
+                    for msg in conversation.messages where msg.sender.id == myUser.id {
+                        msg.status = .read
+                    }
                 }
             }
             return
         }
         
         let sender = fetchOrCreateUser(id: payload.senderID, name: payload.senderName)
-        let conversation = fetchOrCreateConversation(id: payload.conversationID, sender: sender)
+        let conversation = findOrCreateConversationForSender(sender: sender)
         
         let message = Message(
             id: payload.id,
@@ -262,7 +273,6 @@ final class MultipeerManager: ObservableObject {
         
         let messageID = UUID(uuidString: components[0]) ?? UUID()
         let senderID = UUID(uuidString: components[1]) ?? UUID()
-        let conversationID = UUID(uuidString: components[2]) ?? UUID()
         let type = MessageType(rawValue: components[3]) ?? .file
         let caption = components[4]
         
@@ -272,7 +282,7 @@ final class MultipeerManager: ObservableObject {
         try? FileManager.default.moveItem(at: localURL, to: destinationURL)
         
         let sender = fetchOrCreateUser(id: senderID, name: "Peer")
-        let conversation = fetchOrCreateConversation(id: conversationID, sender: sender)
+        let conversation = findOrCreateConversationForSender(sender: sender)
         
         let message = Message(
             id: messageID,
@@ -287,12 +297,12 @@ final class MultipeerManager: ObservableObject {
         context.insert(message)
     }
     
-    // MARK: - SwiftData Helpers
     private func fetchOrCreateUser(id: UUID, name: String) -> User {
         guard let context = modelContext else { return User(id: id, name: name) }
         
-        let descriptor = FetchDescriptor<User>(predicate: #Predicate { $0.id == id })
-        if let existingUser = try? context.fetch(descriptor).first {
+        let descriptor = FetchDescriptor<User>()
+        let users = (try? context.fetch(descriptor)) ?? []
+        if let existingUser = users.first(where: { $0.id == id || $0.name == name }) {
             return existingUser
         }
         let newUser = User(id: id, name: name)
@@ -300,16 +310,19 @@ final class MultipeerManager: ObservableObject {
         return newUser
     }
     
-    private func fetchOrCreateConversation(id: UUID, sender: User) -> Conversation {
+    private func findOrCreateConversationForSender(sender: User) -> Conversation {
         guard let context = modelContext else {
-            return Conversation(id: id, participants: [myUser, sender])
+            return Conversation(participants: [myUser, sender])
         }
         
-        let descriptor = FetchDescriptor<Conversation>(predicate: #Predicate { $0.id == id })
-        if let existing = try? context.fetch(descriptor).first {
+        let descriptor = FetchDescriptor<Conversation>()
+        let existingConvs = (try? context.fetch(descriptor)) ?? []
+        
+        if let existing = existingConvs.first(where: { !$0.isGroup && $0.participants.contains(where: { $0.name == sender.name }) }) {
             return existing
         }
-        let newConversation = Conversation(id: id, participants: [myUser, sender])
+        
+        let newConversation = Conversation(participants: [myUser, sender])
         context.insert(newConversation)
         return newConversation
     }

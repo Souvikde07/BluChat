@@ -10,32 +10,25 @@ final class ChatBrowser: NSObject, ObservableObject, MCNearbyServiceBrowserDeleg
     
     @Published var discoveredPeers: [MCPeerID] = []
     
-    /// Callback when a peer is found
     var onPeerFound: ((MCPeerID) -> Void)?
-    /// Callback when a peer is lost
     var onPeerLost: ((MCPeerID) -> Void)?
-    /// Callback when a peer invites (initiates connection)
-    var onInvitePeer: ((MCPeerID, @escaping (Bool, MCSession?) -> Void) -> Void)?
     
     init(displayName: String) {
         self.myPeerID = MCPeerID(displayName: displayName)
         super.init()
     }
     
-    /// Starts browsing for nearby peers
     func startBrowsing() {
         browser = MCNearbyServiceBrowser(peer: myPeerID, serviceType: serviceType)
         browser?.delegate = self
         browser?.startBrowsingForPeers()
     }
     
-    /// Stops browsing for nearby peers
     func stopBrowsing() {
         browser?.stopBrowsingForPeers()
         browser = nil
     }
     
-    // MARK: - MCNearbyServiceBrowserDelegate
     func browser(_ browser: MCNearbyServiceBrowser, foundPeer peerID: MCPeerID, withDiscoveryInfo info: [String : String]?) {
         if !discoveredPeers.contains(peerID) {
             discoveredPeers.append(peerID)
@@ -51,10 +44,9 @@ final class ChatBrowser: NSObject, ObservableObject, MCNearbyServiceBrowserDeleg
     }
     
     func browser(_ browser: MCNearbyServiceBrowser, didNotStartBrowsingForPeers error: Error) {
-        print("Failed to start browsing: \(error)")
+        print("Browser Error: \(error.localizedDescription)")
     }
     
-    /// Initiate invitation to a discovered peer
     func invite(peer: MCPeerID, to session: MCSession, with context: Data? = nil, timeout: TimeInterval = 30) {
         browser?.invitePeer(peer, to: session, withContext: context, timeout: timeout)
     }
